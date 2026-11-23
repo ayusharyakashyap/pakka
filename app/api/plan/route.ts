@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
-import { bad, cleanText, newId } from "@/lib/api";
+import { bad, cleanText, guard, isTeam, newId } from "@/lib/api";
 import { addVisitor, bump, bumpBreakdown, saveAdminToken, savePlan } from "@/lib/store";
 import { upcomingWeekends } from "@/lib/weekends";
 import type { Plan } from "@/lib/types";
 
 export async function POST(req: Request) {
+  const blocked = await guard(req, "create", 30);
+  if (blocked) return blocked;
   const body = await req.json().catch(() => null);
   if (!body) return bad("Invalid body");
   const organizer = cleanText(body.organizer, 24);
@@ -23,8 +25,10 @@ export async function POST(req: Request) {
   };
   const adminToken = newId(20);
   await Promise.all([savePlan(plan), saveAdminToken(plan.id, adminToken)]);
-  await bump(solo ? "solo_plans" : "group_plans");
-  if (body.vid) await addVisitor(cleanText(body.vid, 40));
-  if (body.src) await bumpBreakdown("src", cleanText(body.src, 30));
+  if (!isTeam(body)) {
+    await bump(solo ? "solo_plans" : "group_plans");
+    if (body.vid) await addVisitor(cleanText(body.vid, 40));
+    if (body.src) await bumpBreakdown("src", cleanText(body.src, 30));
+  }
   return NextResponse.json({ id: plan.id, adminToken });
 }

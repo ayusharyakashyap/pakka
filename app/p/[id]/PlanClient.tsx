@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DESTINATIONS, ORIGINS, VIBES, destById, originById, type Vibe } from "@/lib/data";
 import type { Commitment, Member, Plan, Results } from "@/lib/types";
-import { getAdmin, getVid, inr, memberIdFor, setAdmin, track, whatsappLink } from "@/lib/client";
+import { getAdmin, getVid, inr, memberIdFor, postJSON, setAdmin, track, whatsappLink } from "@/lib/client";
 
 type PublicMember = Omit<Member, "budget">;
 type Data = { plan: Plan; members: PublicMember[]; votes: Record<string, string>; results: Results };
@@ -22,10 +22,17 @@ export default function PlanClient({ id }: { id: string }) {
   const [url, setUrl] = useState("");
   const [copied, setCopied] = useState(false);
 
+  const [offline, setOffline] = useState(false);
   const load = useCallback(async () => {
-    const r = await fetch(`/api/plan/${id}`, { cache: "no-store" });
-    if (r.status === 404) return setNotFound(true);
-    setData(await r.json());
+    try {
+      const r = await fetch(`/api/plan/${id}?m=${encodeURIComponent(memberIdFor(id))}`, { cache: "no-store" });
+      if (r.status === 404) return setNotFound(true);
+      if (!r.ok) throw new Error();
+      setData(await r.json());
+      setOffline(false);
+    } catch {
+      setOffline(true);
+    }
   }, [id]);
 
   useEffect(() => {
@@ -40,8 +47,16 @@ export default function PlanClient({ id }: { id: string }) {
     setAdminTok(getAdmin(id));
     setUrl(`${location.origin}/p/${id}`);
     load();
-    const t = setInterval(() => { if (document.visibilityState === "visible") load(); }, 6000);
-    return () => clearInterval(t);
+    // Live updates: poll every 8s while the tab is visible, for up to 10 min after the last activity.
+    let lastActive = Date.now();
+    const poke = () => { const idle = Date.now() - lastActive > 600000; lastActive = Date.now(); if (idle) load(); };
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible" && Date.now() - lastActive < 600000) load();
+    }, 8000);
+    const onVis = () => { if (document.visibilityState === "visible") { lastActive = Date.now(); load(); } };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("pointerdown", poke);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVis); window.removeEventListener("pointerdown", poke); };
   }, [id, load]);
 
   if (notFound)
@@ -51,7 +66,13 @@ export default function PlanClient({ id }: { id: string }) {
         <a href="/" className="btn-primary mt-5">Start a new one</a>
       </div>
     );
-  if (!data) return <p className="mt-20 text-center font-display text-xl font-bold wiggle">Loading the gang…</p>;
+  if (!data)
+    return (
+      <div className="mt-20 text-center">
+        <p className="font-display text-xl font-bold wiggle">{offline ? "Can't reach Pakka right now…" : "Loading the gang…"}</p>
+        {offline && <button className="btn-ghost mt-4" onClick={load}>Try again</button>}
+      </div>
+    );
 
   const { plan, members, results } = data;
   const solo = plan.groupSize === 1;
@@ -79,6 +100,11 @@ export default function PlanClient({ id }: { id: string }) {
         {mine && !editing && <button className="text-sm font-semibold underline" onClick={() => setEditing(true)}>edit my card</button>}
       </header>
 
+      {offline && (
+        <p className="mt-4 rounded-xl border-2 border-ink bg-chili/10 px-4 py-2 text-sm font-semibold">
+          Connection hiccup. Showing the last update, retrying…
+        </p>
+      )}
       <section className="mt-6">
         <p className="font-semibold text-ink/60">{solo ? "Solo mode 🎒" : `${plan.organizer} started a plan`}</p>
         <h1 className="font-display text-4xl font-extrabold leading-tight tracking-tight">{plan.name}</h1>
@@ -215,24 +241,24 @@ function JoinForm({ plan, memberId, existing, defaultName, onDone }: {
     }
   }, [existing, defaultName]);
 
+  const todayISO = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+  const openWeekends = plan.weekends.filter((w) => w.endISO >= todayISO);
   const toggle = <T,>(arr: T[], v: T, max = 99) => (arr.includes(v) ? arr.filter((x) => x !== v) : arr.length >= max ? arr : [...arr, v]);
 
   async function submit() {
     if (!name.trim()) return setErr("Your name?");
     if (!city) return setErr("Where are you travelling from?");
-    if (!weekends.length) return setErr("Pick at least one weekend you're free");
+    if (!weekends.some((w) => openWeekends.some((o) => o.id === w))) return setErr("Pick at least one weekend you're free");
     setBusy(true); setErr("");
     try {
       localStorage.setItem("pakka_name", name); localStorage.setItem("pakka_city", city); localStorage.setItem("pakka_budget", String(budget));
     } catch {}
-    const r = await fetch(`/api/plan/${plan.id}/join`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ memberId, name, city, budget, weekends, vibes, commitment: solo ? 2 : commitment, vid: getVid() }),
+    const res = await postJSON<Data>(`/api/plan/${plan.id}/join`, {
+      memberId, name, city, budget, weekends, vibes, commitment: solo ? 2 : commitment, vid: getVid(),
     });
-    const d = await r.json();
     setBusy(false);
-    if (!r.ok) return setErr(d.error || "Something broke, try again");
-    onDone(d);
+    if (!res.ok) return setErr(res.error);
+    onDone(res.data);
   }
 
   return (
@@ -257,7 +283,8 @@ function JoinForm({ plan, memberId, existing, defaultName, onDone }: {
 
       <label className="label mt-5">Weekends you&apos;re free <span className="normal-case text-ink/50">(tap all that work)</span></label>
       <div className="grid grid-cols-2 gap-2">
-        {plan.weekends.map((w) => (
+        {openWeekends.length === 0 && <p className="col-span-2 text-sm text-chili">All the weekends in this plan have passed. Start a fresh plan from the homepage.</p>}
+        {openWeekends.map((w) => (
           <button key={w.id} type="button" onClick={() => setWeekends(toggle(weekends, w.id))}
             className={`rounded-xl border-2 border-ink px-3 py-2 text-left text-sm font-semibold transition ${weekends.includes(w.id) ? "bg-ink text-white" : "bg-white"} ${w.tag && !weekends.includes(w.id) ? "border-chili" : ""}`}>
             <span className="block text-[11px] font-medium opacity-60">{w.nights + 1} days</span>
@@ -370,17 +397,18 @@ function DestCard({ r, rank, data, me, admin, solo, onData, hasCard }: {
   const daysTo = useMemo(() => wk ? Math.max(0, Math.ceil((new Date(wk.startISO + "T18:00:00+05:30").getTime() - Date.now()) / 86400000)) : null, [wk]);
   const gostopsUrl = `https://gostops.com/stay/${d.gostops}${wk ? `?checkin=${wk.startISO}&checkout=${wk.endISO}` : ""}`;
 
+  const [err, setErr] = useState("");
   async function vote() {
-    setBusy(true);
-    const res = await fetch(`/api/plan/${plan.id}/vote`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ memberId: me, destId: r.destId }) });
-    if (res.ok) onData(await res.json());
+    setBusy(true); setErr("");
+    const res = await postJSON<Data>(`/api/plan/${plan.id}/vote`, { memberId: me, destId: r.destId });
+    if (res.ok) onData(res.data); else setErr(res.error);
     setBusy(false);
   }
   async function lock(unlock = false) {
     if (!wkId) return;
-    setBusy(true);
-    const res = await fetch(`/api/plan/${plan.id}/lock`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ adminToken: admin, destId: r.destId, weekendId: wkId, unlock }) });
-    if (res.ok) onData(await res.json());
+    setBusy(true); setErr("");
+    const res = await postJSON<Data>(`/api/plan/${plan.id}/lock`, { adminToken: admin, memberId: me, destId: r.destId, weekendId: wkId, unlock });
+    if (res.ok) onData(res.data); else setErr(res.error);
     setBusy(false);
   }
 
@@ -453,6 +481,7 @@ function DestCard({ r, rank, data, me, admin, solo, onData, hasCard }: {
           )}
           {locked && admin && <button className="text-sm underline" onClick={() => lock(true)} disabled={busy}>unlock</button>}
         </div>
+        {err && <p className="mt-2 text-sm font-semibold text-chili">{err}</p>}
       </div>
     </article>
   );

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getSrc, getVid, setAdmin } from "@/lib/client";
+import { getSrc, getVid, postJSON, setAdmin } from "@/lib/client";
 
 export default function Home() {
   const router = useRouter();
@@ -15,29 +15,25 @@ export default function Home() {
 
   useEffect(() => {
     try { if (new URLSearchParams(location.search).get("mode") === "solo") setMode("solo"); } catch {}
-    fetch("/api/stats").then((r) => r.json()).then((s) => setUsers(s.users ?? null)).catch(() => {});
+    fetch("/api/stats?lite").then((r) => r.json()).then((s) => setUsers(s.users ?? null)).catch(() => {});
   }, []);
 
   async function create() {
     if (!organizer.trim()) return setErr("What should your friends call you?");
     setBusy(true);
     setErr("");
-    const res = await fetch("/api/plan", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        organizer,
-        name,
-        groupSize: mode === "solo" ? 1 : groupSize,
-        vid: getVid(),
-        src: getSrc(),
-      }),
+    const res = await postJSON<{ id: string; adminToken: string }>("/api/plan", {
+      organizer,
+      name,
+      groupSize: mode === "solo" ? 1 : groupSize,
+      vid: getVid(),
+      src: getSrc(),
     });
-    const data = await res.json();
     if (!res.ok) {
       setBusy(false);
-      return setErr(data.error || "Something broke. Try again?");
+      return setErr(res.error);
     }
+    const data = res.data;
     setAdmin(data.id, data.adminToken);
     try { localStorage.setItem(`pakka_name`, organizer); } catch {}
     router.push(`/p/${data.id}?new=1`);

@@ -26,6 +26,27 @@ const today = () => new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice
 
 export const usingRedis = !!redis;
 
+// On Vercel, never silently fall back to memory: each server instance would have its own copy
+// and plans would randomly "disappear". Fail loudly instead so a missing DB is caught in testing.
+export const dbMissingInProd = !redis && !!process.env.VERCEL;
+
+/** Fixed-window rate limit per key. Returns true if the request is allowed. */
+export async function allow(key: string, limit: number, windowSec: number): Promise<boolean> {
+  const k = `rl:${key}:${Math.floor(Date.now() / 1000 / windowSec)}`;
+  if (redis) {
+    const n = await redis.incr(k);
+    if (n === 1) await redis.expire(k, windowSec);
+    return n <= limit;
+  }
+  const n = ((mem.kv.get(k) as number) ?? 0) + 1;
+  mem.kv.set(k, n);
+  return n <= limit;
+}
+
+export async function getUserCount() {
+  return card("stats:users");
+}
+
 export async function savePlan(plan: Plan) {
   if (redis) await redis.set(`plan:${plan.id}`, JSON.stringify(plan), { ex: TTL });
   else mem.kv.set(`plan:${plan.id}`, plan);

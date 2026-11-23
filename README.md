@@ -46,6 +46,18 @@ Check it works:
 - Open `/stats`. You should see your test numbers. **Before launch, start a fresh Upstash DB or just mention test counts in your write-up** so the numbers are clean.
 - Click every "See beds at goSTOPS …" link once. If any city page 404s, fix the slug in `lib/data.ts` (`gostops:` field).
 
+## 2b. Keep the numbers clean and credible (do this before launch)
+
+- **Exclude your own devices:** open `https://<your-site>/?team=1` once on every phone/laptop you test with.
+  From then on that device never counts in visitors, users, plans, shares or clicks. (`?team=0` undoes it.)
+- **Start from zero:** after testing, in Upstash → your database → Data Browser, delete the keys starting with `stats:`
+  (or click "Flush database" before launch if you don't need the test plans).
+- **Don't let the database run out on deadline day:** the free Upstash tier has a monthly command limit.
+  The app is built to be light (edge-cached stats, polling that pauses), but if things take off, add a card in
+  Upstash to switch to pay-as-you-go so it can't hit a wall. Check usage in the Upstash dashboard on Wednesday morning.
+- **Two independent sources:** `/stats` (counted by the app) and Vercel Analytics (counted by Vercel). Show both.
+- Spam protection: every write is rate-limited per IP (generous enough for a whole hostel on one Wi-Fi).
+
 ## 3. Where things are
 
 | File | What it does |

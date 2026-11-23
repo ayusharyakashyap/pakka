@@ -32,8 +32,35 @@ export function getSrc(): string | undefined {
   }, undefined);
 }
 
+/** Builder's own devices: open the site once with ?team=1 to exclude this device from all numbers (?team=0 to undo). */
+export function syncTeamFlag() {
+  safe(() => {
+    const t = new URLSearchParams(location.search).get("team");
+    if (t === "1") localStorage.setItem("pakka_team", "1");
+    if (t === "0") localStorage.removeItem("pakka_team");
+  }, undefined);
+}
+export const isTeamDevice = () => safe(() => localStorage.getItem("pakka_team") === "1", false);
+
+/** POST JSON and never throw: network errors and non-JSON responses become a friendly error. */
+export async function postJSON<T>(url: string, body: Record<string, unknown>): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...body, team: isTeamDevice() }),
+    });
+    const data = await r.json().catch(() => null);
+    if (!r.ok || !data) return { ok: false, error: (data && data.error) || "Something went wrong. Try again?" };
+    return { ok: true, data: data as T };
+  } catch {
+    return { ok: false, error: "No internet? Check your connection and try again." };
+  }
+}
+
 export function track(event: string, extra: Record<string, string> = {}) {
   try {
+    if (isTeamDevice()) return;
     const body = JSON.stringify({ event, vid: getVid(), ...extra });
     if (navigator.sendBeacon) navigator.sendBeacon("/api/track", new Blob([body], { type: "application/json" }));
     else fetch("/api/track", { method: "POST", body, keepalive: true });

@@ -10,6 +10,7 @@ type Stats = {
   dest: Record<string, number>;
   src: Record<string, number>;
   daily: ({ date: string; visitors: number } & Record<string, number | string>)[];
+  at?: number;
 };
 
 const top = (o: Record<string, number>, n = 8) => Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, n);
@@ -19,7 +20,7 @@ export default function StatsPage() {
   useEffect(() => {
     const load = () => fetch("/api/stats", { cache: "no-store" }).then((r) => r.json()).then(setS).catch(() => {});
     load();
-    const t = setInterval(load, 10000);
+    const t = setInterval(load, 20000);
     return () => clearInterval(t);
   }, []);
   if (!s) return <p className="mt-20 text-center font-display text-xl font-bold">Counting…</p>;
@@ -44,7 +45,10 @@ export default function StatsPage() {
     <div>
       <a href="/" className="font-display text-2xl font-extrabold">pakka<span className="text-chili">.</span></a>
       <h1 className="mt-6 font-display text-4xl font-extrabold">Live numbers</h1>
-      <p className="text-ink/60">Updates every 10 seconds. Nothing personal is stored here, just counts.</p>
+      <p className="text-ink/60">
+        {s.at ? `As of ${new Date(s.at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" })} IST. ` : ""}
+        Refreshes on its own. Only counts are shown, nothing personal. The builder&apos;s own test devices are excluded.
+      </p>
 
       <div className="mt-6 grid grid-cols-2 gap-3">
         {tiles.map(([k, v, sub]) => (
