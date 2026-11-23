@@ -36,6 +36,8 @@ export default function StatsPage() {
     ["Trips locked", t.locks ?? 0, "went from chat to pakka"],
     ["Shares", (t.share_whatsapp ?? 0) + (t.share_copy ?? 0) + (t.share_native ?? 0) + (t.nudge ?? 0), "WhatsApp, link and nudges"],
     ["goSTOPS clicks", t.gostops_click ?? 0, "sent to a goSTOPS page"],
+    ["Joiners → organisers", t.start_own ?? 0, "filled a friend's card, then started their own"],
+    ["Avg cards / gang plan", t.group_plans ? ((t.joins ?? 0) - (t.solo_plans ?? 0)) / t.group_plans : 0, "the multiplier"],
   ];
 
   return (
@@ -48,7 +50,7 @@ export default function StatsPage() {
         {tiles.map(([k, v, sub]) => (
           <div key={k} className="card p-4">
             <div className="text-xs font-bold uppercase tracking-wide text-ink/50">{k}</div>
-            <div className="font-display text-4xl font-extrabold">{typeof v === "number" ? v.toLocaleString("en-IN") : v}</div>
+            <div className="font-display text-4xl font-extrabold">{typeof v === "number" ? (Number.isInteger(v) ? v.toLocaleString("en-IN") : v.toFixed(1)) : v}</div>
             <div className="text-xs text-ink/50">{sub}</div>
           </div>
         ))}

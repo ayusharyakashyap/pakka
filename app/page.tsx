@@ -14,6 +14,7 @@ export default function Home() {
   const [users, setUsers] = useState<number | null>(null);
 
   useEffect(() => {
+    try { if (new URLSearchParams(location.search).get("mode") === "solo") setMode("solo"); } catch {}
     fetch("/api/stats").then((r) => r.json()).then((s) => setUsers(s.users ?? null)).catch(() => {});
   }, []);
 

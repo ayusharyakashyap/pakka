@@ -77,7 +77,7 @@ export const DESTINATIONS: Destination[] = [
     season: [G, G, O, O, A, A, A, A, O, O, G, G],
     tagline: "Ferry from Mumbai, beach by lunch. Lowest effort sea you'll get.",
     solo: "Short hop, easy to go alone and be back Sunday night.",
-    gostops: "Alibaug",
+    gostops: "alibaug",
   },
   {
     id: "pondicherry", name: "Pondicherry", state: "Puducherry", lat: 11.93, lng: 79.83, hill: false,

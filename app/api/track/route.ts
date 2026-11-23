@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cleanText } from "@/lib/api";
 import { addVisitor, bump, bumpBreakdown } from "@/lib/store";
 
-const EVENTS = new Set(["visit", "share_whatsapp", "share_copy", "share_native", "gostops_click", "nudge", "story_card"]);
+const EVENTS = new Set(["visit", "share_whatsapp", "share_copy", "share_native", "gostops_click", "nudge", "story_card", "start_own"]);
 
 export async function POST(req: Request) {
   const b = await req.json().catch(() => null);

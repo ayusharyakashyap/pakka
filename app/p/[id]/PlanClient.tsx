@@ -1,8 +1,8 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DESTINATIONS, ORIGINS, VIBES, destById, originById, type Vibe } from "@/lib/data";
 import type { Commitment, Member, Plan, Results } from "@/lib/types";
-import { getAdmin, getVid, inr, memberIdFor, track, whatsappLink } from "@/lib/client";
+import { getAdmin, getVid, inr, memberIdFor, setAdmin, track, whatsappLink } from "@/lib/client";
 
 type PublicMember = Omit<Member, "budget">;
 type Data = { plan: Plan; members: PublicMember[]; votes: Record<string, string>; results: Results };
@@ -30,6 +30,13 @@ export default function PlanClient({ id }: { id: string }) {
 
   useEffect(() => {
     setMe(memberIdFor(id));
+    const qs = new URLSearchParams(location.search);
+    const adminParam = qs.get("admin");
+    if (adminParam) {
+      setAdmin(id, adminParam);
+      qs.delete("admin");
+      history.replaceState(null, "", `${location.pathname}${qs.toString() ? "?" + qs : ""}`);
+    }
     setAdminTok(getAdmin(id));
     setUrl(`${location.origin}/p/${id}`);
     load();
@@ -77,6 +84,13 @@ export default function PlanClient({ id }: { id: string }) {
         <h1 className="font-display text-4xl font-extrabold leading-tight tracking-tight">{plan.name}</h1>
       </section>
 
+      {showForm && !mine && !solo && members.length > 0 && (
+        <p className="mt-4 rounded-xl border-2 border-ink bg-sun px-4 py-3 font-semibold shadow-hardsm">
+          {members.slice(0, 3).map((m) => m.name).join(", ")}
+          {members.length > 3 ? ` and ${members.length - 3} more` : ""} {members.length === 1 ? "is" : "are"} in.
+          {plan.groupSize > members.length ? " Waiting on you 👀" : ""}
+        </p>
+      )}
       {showForm ? (
         <JoinForm
           plan={plan}
@@ -108,6 +122,19 @@ export default function PlanClient({ id }: { id: string }) {
               )}
             </section>
           )}
+
+          {!solo && !isAdmin && (
+            <section className="card mt-5 bg-sun/40 p-5">
+              <h2 className="font-display text-lg font-extrabold">Got another group chat where a trip is dying?</h2>
+              <p className="text-sm text-ink/70">College gang, school friends, cousins. Start a plan there too. Takes 10 seconds.</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <a href="/?src=joiner" className="btn-ghost" onClick={() => track("start_own")}>👯 Start my own plan</a>
+                <a href="/?src=joiner&mode=solo" className="btn-ghost" onClick={() => track("start_own")}>🎒 Plan a solo weekend</a>
+              </div>
+            </section>
+          )}
+
+          {isAdmin && !solo && <OrganiserLink url={`${url}?admin=${admin}`} />}
 
           {!solo && <WeekendStrip data={data} />}
 
@@ -232,9 +259,10 @@ function JoinForm({ plan, memberId, existing, defaultName, onDone }: {
       <div className="grid grid-cols-2 gap-2">
         {plan.weekends.map((w) => (
           <button key={w.id} type="button" onClick={() => setWeekends(toggle(weekends, w.id))}
-            className={`chip text-left ${weekends.includes(w.id) ? "chip-on" : ""} ${w.tag ? "border-chili" : ""}`}>
-            {w.label}
-            {w.tag && <span className={`block text-[11px] font-bold ${weekends.includes(w.id) ? "text-sun" : "text-chili"}`}>{w.tag}</span>}
+            className={`rounded-xl border-2 border-ink px-3 py-2 text-left text-sm font-semibold transition ${weekends.includes(w.id) ? "bg-ink text-white" : "bg-white"} ${w.tag && !weekends.includes(w.id) ? "border-chili" : ""}`}>
+            <span className="block text-[11px] font-medium opacity-60">{w.nights + 1} days</span>
+            {shortRange(w.startISO, w.endISO)}
+            {w.tag && <span className={`block text-[11px] font-bold leading-tight ${weekends.includes(w.id) ? "text-sun" : "text-chili"}`}>{w.tag}</span>}
           </button>
         ))}
       </div>
@@ -295,6 +323,10 @@ function PakkaMeter({ data, solo }: { data: Data; solo: boolean }) {
 function WeekendStrip({ data }: { data: Data }) {
   const { plan, results, members } = data;
   const max = Math.max(1, ...results.weekendCounts.map((w) => w.count));
+  const bestRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    bestRef.current?.parentElement?.scrollTo({ left: Math.max(0, (bestRef.current.offsetLeft ?? 0) - 80), behavior: "smooth" });
+  }, [results.bestWeekendId]);
   return (
     <section className="mt-8">
       <h2 className="font-display text-lg font-extrabold">When everyone&apos;s free</h2>
@@ -303,7 +335,7 @@ function WeekendStrip({ data }: { data: Data }) {
           const c = results.weekendCounts.find((x) => x.id === w.id)?.count ?? 0;
           const best = w.id === results.bestWeekendId;
           return (
-            <div key={w.id} className={`flex min-w-[64px] flex-col items-center rounded-xl border-2 p-2 text-center ${best ? "border-ink bg-sun shadow-hardsm" : "border-ink/20 bg-white"}`}>
+            <div key={w.id} ref={best ? bestRef : undefined} className={`flex min-w-[64px] flex-col items-center rounded-xl border-2 p-2 text-center ${best ? "border-ink bg-sun shadow-hardsm" : "border-ink/20 bg-white"}`}>
               <div className="flex h-16 w-6 items-end overflow-hidden rounded bg-ink/5">
                 <div className="w-full bg-ink" style={{ height: `${(c / max) * 100}%` }} />
               </div>
@@ -424,4 +456,24 @@ function DestCard({ r, rank, data, me, admin, solo, onData, hasCard }: {
       </div>
     </article>
   );
+}
+
+function OrganiserLink({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <details className="mt-4 rounded-xl border-2 border-dashed border-ink/30 p-3 text-sm">
+      <summary className="cursor-pointer font-semibold">🔑 Your organiser link (to lock the plan from another phone)</summary>
+      <p className="mt-2 text-ink/60">Keep this one private. Anyone with it can lock the plan. Share the normal link with friends.</p>
+      <button className="btn-ghost mt-2 w-full text-sm" onClick={async () => {
+        try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch {}
+      }}>{copied ? "Copied ✓" : "Copy organiser link"}</button>
+    </details>
+  );
+}
+
+function shortRange(a: string, b: string) {
+  const f = (iso: string) => new Date(iso + "T00:00:00Z").toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" });
+  const [sa, sb] = [f(a), f(b)];
+  const sameMonth = a.slice(0, 7) === b.slice(0, 7);
+  return sameMonth ? `${sa.split(" ")[0]}–${sb}` : `${sa} – ${sb}`;
 }
